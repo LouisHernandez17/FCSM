@@ -1,0 +1,166 @@
+from __future__ import annotations
+
+import argparse
+import gzip
+import json
+import shutil
+from pathlib import Path
+from typing import Iterable, List
+
+from build_conceptnet_dataset import (
+    DEFAULT_INPUT as CN_DEFAULT_INPUT,
+    DEFAULT_OUTPUT_DIR as CN_DEFAULT_OUTPUT_DIR,
+    TARGET_RELATIONS,
+    ensure_wordnet,
+    extract_subgraphs,
+    load_conceptnet_graph,
+)
+from build_gold_standard import (
+    BNLEARN_PRESETS,
+    DEFAULT_OUTPUT_DIR as GOLD_DEFAULT_OUTPUT_DIR,
+    parse_args as gold_parse_args,  # unused but keeps compatibility
+    model_to_digraph,
+    graph_to_payload,
+    load_model,
+    BNLEARN_NETWORKS,
+    GraphAugmenter,
+)
+
+
+def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build full dataset: Tier2 ConceptNet + Tier3 bnlearn with augmentations, and emit a JSONL manifest.")
+
+    # Tier2
+    parser.add_argument("--conceptnet-input", type=Path, default=CN_DEFAULT_INPUT, help="ConceptNet assertions file (.csv or .csv.gz)")
+    parser.add_argument("--conceptnet-output", type=Path, default=CN_DEFAULT_OUTPUT_DIR, help="Output directory for Tier2 graphs")
+    parser.add_argument("--conceptnet-num-graphs", type=int, default=5000, help="Number of ConceptNet graphs to sample")
+    parser.add_argument("--conceptnet-min-nodes", type=int, default=5)
+    parser.add_argument("--conceptnet-max-nodes", type=int, default=15)
+    parser.add_argument("--conceptnet-relations", nargs="*", default=sorted(TARGET_RELATIONS))
+    parser.add_argument("--conceptnet-seed", type=int, default=17)
+
+    # Tier3
+    parser.add_argument("--bnlearn-all", action="store_true", help="Export bnlearn networks (uses preset)")
+    parser.add_argument("--bnlearn-preset", choices=sorted(BNLEARN_PRESETS.keys()), default="expanded")
+    parser.add_argument("--networks", nargs="+", default=["asia"], help="Specific networks to export when --bnlearn-all is not set")
+    parser.add_argument("--gold-output", type=Path, default=GOLD_DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--bif", type=Path)
+    parser.add_argument("--marginalize-copies", type=int, default=5)
+    parser.add_argument("--marginalize-drop-min", type=float, default=0.2)
+    parser.add_argument("--marginalize-drop-max", type=float, default=0.4)
+    parser.add_argument("--snowball-copies", type=int, default=5)
+    parser.add_argument("--snowball-min-nodes", type=int, default=8)
+    parser.add_argument("--snowball-max-nodes", type=int, default=15)
+    parser.add_argument("--seed", type=int, default=42)
+
+    # Combined output
+    parser.add_argument("--manifest", type=Path, default=Path("dataset/full_dataset.jsonl"), help="Path to JSONL manifest of all graphs")
+    parser.add_argument("--manifest-gzip", action="store_true", help="Also emit gzip-compressed JSONL (.gz)")
+
+    return parser.parse_args(argv)
+
+
+def build_tier2(args: argparse.Namespace) -> List[Path]:
+    ensure_wordnet()
+    g = load_conceptnet_graph(args.conceptnet_input, set(args.conceptnet_relations))
+    extract_subgraphs(
+        graph=g,
+        output_dir=args.conceptnet_output,
+        num_graphs=args.conceptnet_num_graphs,
+        min_nodes=args.conceptnet_min_nodes,
+        max_nodes=args.conceptnet_max_nodes,
+        seed=args.conceptnet_seed,
+    )
+    return sorted(args.conceptnet_output.glob("graph_*.json"))
+
+
+def build_tier3(args: argparse.Namespace) -> List[Path]:
+    workdir = args.gold_output / "_tmp"
+    workdir.mkdir(parents=True, exist_ok=True)
+    augmenter = GraphAugmenter(seed=args.seed)
+
+    drop_min = min(args.marginalize_drop_min, args.marginalize_drop_max)
+    drop_max = max(args.marginalize_drop_min, args.marginalize_drop_max)
+
+    if args.bnlearn_all:
+        names = BNLEARN_PRESETS[args.bnlearn_preset]
+        networks = [(n, BNLEARN_NETWORKS.get(n)) for n in names]
+    else:
+        networks = [(n, BNLEARN_NETWORKS.get(n)) for n in args.networks]
+
+    written: List[Path] = []
+
+    for name, url in networks:
+        if url:
+            bif_path = download_bif(name, url, workdir)  # type: ignore[name-defined]
+            if bif_path is None:
+                continue
+        else:
+            bif_path = args.bif
+
+        network_name, model = load_model(name, bif_path)
+        base_graph = model_to_digraph(model)
+
+        # orig
+        payload = graph_to_payload(network_name, base_graph, suffix="orig")
+        written.append(write_graph(args.gold_output, payload))
+
+        # marginals
+        for i in range(max(0, args.marginalize_copies)):
+            drop = augmenter.rng.uniform(drop_min, drop_max)
+            marg_graph = augmenter.marginalize(base_graph, drop_rate=drop)
+            payload = graph_to_payload(network_name, marg_graph, suffix=f"marg_{i}")
+            written.append(write_graph(args.gold_output, payload))
+
+        # snowball
+        if base_graph.number_of_nodes() > args.snowball_min_nodes:
+            for i in range(max(0, args.snowball_copies)):
+                snow_graph = augmenter.snowball_sample(
+                    base_graph,
+                    min_nodes=args.snowball_min_nodes,
+                    max_nodes=args.snowball_max_nodes,
+                )
+                payload = graph_to_payload(network_name, snow_graph, suffix=f"sub_{i}")
+                written.append(write_graph(args.gold_output, payload))
+
+    shutil.rmtree(workdir, ignore_errors=True)  # type: ignore[name-defined]
+    return written
+
+
+# Bring needed functions locally to avoid circular import issues
+from build_gold_standard import download_bif, write_graph  # noqa: E402
+
+
+def write_manifest(json_paths: List[Path], manifest_path: Path, gzip_out: bool = False) -> None:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def emit(handle):
+        for path in json_paths:
+            data = json.loads(path.read_text())
+            data.setdefault("path", str(path))
+            handle.write(json.dumps(data))
+            handle.write("\n")
+
+    with manifest_path.open("w", encoding="utf-8") as f:
+        emit(f)
+
+    if gzip_out:
+        gz_path = manifest_path.with_suffix(manifest_path.suffix + ".gz")
+        with gzip.open(gz_path, "wt", encoding="utf-8") as gf:
+            emit(gf)
+
+
+
+def main(argv: Iterable[str] | None = None) -> None:
+    args = parse_args(argv)
+
+    tier2_paths = build_tier2(args)
+    tier3_paths = build_tier3(args)
+
+    all_paths = tier2_paths + tier3_paths
+    write_manifest(all_paths, args.manifest, gzip_out=args.manifest_gzip)
+    print(f"Wrote {len(all_paths)} graphs to manifest {args.manifest}")
+
+
+if __name__ == "__main__":
+    main()
