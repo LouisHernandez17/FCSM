@@ -18,6 +18,7 @@ class GraphStats:
     nodes: int
     edges: int
     density: float
+    edges_per_node: float
     is_dag: bool
     is_weakly_connected: bool
     isolates: int
@@ -32,6 +33,7 @@ class Aggregate:
     node_counts: List[int] = field(default_factory=list)
     edge_counts: List[int] = field(default_factory=list)
     densities: List[float] = field(default_factory=list)
+    edges_per_node: List[float] = field(default_factory=list)
 
     def update(self, stats: GraphStats) -> None:
         self.total_files += 1
@@ -44,6 +46,7 @@ class Aggregate:
         self.node_counts.append(stats.nodes)
         self.edge_counts.append(stats.edges)
         self.densities.append(stats.density)
+        self.edges_per_node.append(stats.edges_per_node)
 
     def summary(self) -> dict:
         if self.total_files == 0:
@@ -51,6 +54,7 @@ class Aggregate:
         arr_nodes = np.array(self.node_counts)
         arr_edges = np.array(self.edge_counts)
         arr_density = np.array(self.densities)
+        arr_edges_per_node = np.array(self.edges_per_node)
         return {
             "total_files": int(self.total_files),
             "valid_dags": int(self.valid_dags),
@@ -61,6 +65,9 @@ class Aggregate:
             "avg_density": float(arr_density.mean()),
             "p10_density": float(np.percentile(arr_density, 10)),
             "p90_density": float(np.percentile(arr_density, 90)),
+            "avg_edges_per_node": float(arr_edges_per_node.mean()),
+            "p10_edges_per_node": float(np.percentile(arr_edges_per_node, 10)),
+            "p90_edges_per_node": float(np.percentile(arr_edges_per_node, 90)),
             "min_nodes": int(arr_nodes.min()),
             "max_nodes": int(arr_nodes.max()),
             "min_edges": int(arr_edges.min()),
@@ -105,11 +112,12 @@ def graph_stats(path: Path) -> GraphStats:
     n = G.number_of_nodes()
     e = G.number_of_edges()
     density = e / (n * (n - 1)) if n > 1 else 0.0
+    edges_per_node = e / n if n > 0 else 0.0
     is_dag = nx.is_directed_acyclic_graph(G)
     is_weak = nx.is_weakly_connected(G) if n > 0 else True
     isolates = len(list(nx.isolates(G)))
 
-    return GraphStats(path=path, nodes=n, edges=e, density=density, is_dag=is_dag, is_weakly_connected=is_weak, isolates=isolates)
+    return GraphStats(path=path, nodes=n, edges=e, density=density, edges_per_node=edges_per_node, is_dag=is_dag, is_weakly_connected=is_weak, isolates=isolates)
 
 
 def validate(paths: Sequence[Path]) -> Aggregate:
@@ -164,10 +172,13 @@ def main(argv: Iterable[str] | None = None) -> None:
     print(f"Avg Nodes:   {summary['avg_nodes']:.2f} (min {summary['min_nodes']}, max {summary['max_nodes']})")
     print(f"Avg Edges:   {summary['avg_edges']:.2f} (min {summary['min_edges']}, max {summary['max_edges']})")
     print(f"Avg Density: {summary['avg_density']:.2f} (p10 {summary['p10_density']:.2f}, p90 {summary['p90_density']:.2f})")
+    print(f"Edges/Node:  {summary['avg_edges_per_node']:.2f} (p10 {summary['p10_edges_per_node']:.2f}, p90 {summary['p90_edges_per_node']:.2f})")
     if summary['avg_density'] > 0.5:
         print("⚠️ WARNING: High mean density (>0.5). Marginalization may be too aggressive.")
-    elif summary['avg_density'] < 0.1:
-        print("⚠️ WARNING: Very sparse mean density (<0.1). Graphs may be too simple.")
+    elif summary['avg_density'] < 0.05:
+        print("⚠️ WARNING: Very sparse mean density (<0.05). Graphs may be too simple.")
+    elif summary['avg_edges_per_node'] < 0.8:
+        print("⚠️ WARNING: Low edges-per-node (<0.8). Graphs may be too chain-like.")
 
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)

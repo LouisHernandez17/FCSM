@@ -4,7 +4,6 @@ import argparse
 import csv
 import gzip
 import json
-import random
 import sys
 from pathlib import Path
 from typing import Iterable
@@ -13,7 +12,14 @@ import networkx as nx
 import nltk
 from nltk.corpus import wordnet
 
-TARGET_RELATIONS = {"/r/Causes", "/r/HasPrerequisite", "/r/HasSubevent", "/r/Entails"}
+from assets.augmenter import GraphAugmenter
+
+TARGET_RELATIONS = {
+                    "/r/Causes",
+                    # "/r/HasPrerequisite",
+                    # "/r/HasSubevent",
+                    # "/r/Entails",
+                     }
 DEFAULT_INPUT = Path("conceptnet-assertions-5.7.0.csv/assertions.csv")
 DEFAULT_OUTPUT_DIR = Path("dataset/tier2_conceptnet")
 
@@ -81,7 +87,7 @@ def extract_subgraphs(
     max_nodes: int,
     seed: int | None = None,
 ) -> None:
-    rng = random.Random(seed)
+    augmenter = GraphAugmenter(seed=seed)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     nodes_list = list(graph.nodes())
@@ -89,29 +95,31 @@ def extract_subgraphs(
         raise ValueError("ConceptNet graph is empty; check the input file and filters.")
 
     generated = 0
-    print(f"Starting snowball sampling on graph with {len(nodes_list)} nodes...")
+    attempts = 0
+    max_attempts = num_graphs * 10
+    print(f"Sampling {num_graphs} graphs using depth-biased random walks on {len(nodes_list)} nodes...")
 
-    while generated < num_graphs:
-        seed_node = rng.choice(nodes_list)
-        neighbors = list(graph.successors(seed_node)) + list(graph.predecessors(seed_node))
+    while generated < num_graphs and attempts < max_attempts:
+        attempts += 1
 
-        if len(neighbors) < min_nodes:
+        subgraph = augmenter.random_walk_sample(
+            graph,
+            min_nodes=min_nodes,
+            max_nodes=max_nodes,
+        )
+
+        if subgraph.number_of_nodes() < min_nodes:
             continue
-
-        sample_size = min(len(neighbors), max_nodes - 1)
-        if sample_size <= 0:
-            continue
-
-        subgraph_nodes = {seed_node}
-        subgraph_nodes.update(rng.sample(neighbors, sample_size))
-
-        subgraph = graph.subgraph(subgraph_nodes).copy()
-
         if not nx.is_directed_acyclic_graph(subgraph):
             continue
         if not nx.is_weakly_connected(subgraph):
             continue
-        if subgraph.number_of_edges() < min_nodes - 1:
+
+        try:
+            longest_path = nx.dag_longest_path(subgraph)
+            if len(longest_path) < 3:
+                continue
+        except nx.NetworkXError:
             continue
 
         nodes_data = []
@@ -139,6 +147,8 @@ def extract_subgraphs(
         if generated % 100 == 0:
             print(f"Saved {generated} graphs to {output_dir}.")
 
+    if generated < num_graphs:
+        print(f"Warning: requested {num_graphs}, generated {generated} after {attempts} attempts.")
     print(f"Completed. Generated {generated} graphs in {output_dir}.")
 
 

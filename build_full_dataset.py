@@ -34,8 +34,8 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--conceptnet-input", type=Path, default=CN_DEFAULT_INPUT, help="ConceptNet assertions file (.csv or .csv.gz)")
     parser.add_argument("--conceptnet-output", type=Path, default=CN_DEFAULT_OUTPUT_DIR, help="Output directory for Tier2 graphs")
     parser.add_argument("--conceptnet-num-graphs", type=int, default=5000, help="Number of ConceptNet graphs to sample")
-    parser.add_argument("--conceptnet-min-nodes", type=int, default=5)
-    parser.add_argument("--conceptnet-max-nodes", type=int, default=15)
+    parser.add_argument("--conceptnet-min-nodes", "--min-nodes", dest="conceptnet_min_nodes", type=int, default=5)
+    parser.add_argument("--conceptnet-max-nodes", "--max-nodes", dest="conceptnet_max_nodes", type=int, default=15)
     parser.add_argument("--conceptnet-relations", nargs="*", default=sorted(TARGET_RELATIONS))
     parser.add_argument("--conceptnet-seed", type=int, default=17)
 

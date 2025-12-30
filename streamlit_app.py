@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import gzip
 from pathlib import Path
 from typing import List, Optional
 
@@ -31,7 +32,18 @@ def load_manifest(manifest_path: Path) -> pd.DataFrame:
                 "nodes_count": len(nodes),
                 "edges_count": len(edges),
             })
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+
+    df["graph_id"] = df["graph_id"].astype(str)
+    df["domain"] = df["domain"].fillna("").astype(str)
+    df["source"] = df["source"].fillna("").astype(str)
+    df["path"] = df["path"].astype(str)
+    df["nodes_count"] = pd.to_numeric(df["nodes_count"], errors="coerce").fillna(0).astype(int)
+    df["edges_count"] = pd.to_numeric(df["edges_count"], errors="coerce").fillna(0).astype(int)
+
+    return df
 
 
 def load_graph(path: Path) -> nx.DiGraph:
@@ -111,6 +123,12 @@ def main():
 
     st.write(f"Filtered graphs: {len(filtered)} / {len(df)}")
 
+    # Random graph selection
+    default_graph_id = filtered["graph_id"].iloc[0] if not filtered.empty else None
+    random_pick = st.button("🎲 Random graph from filtered") if not filtered.empty else False
+    if random_pick and not filtered.empty:
+        default_graph_id = filtered.sample(1, random_state=None)["graph_id"].iloc[0]
+
     col1, col2 = st.columns([1, 1])
     with col1:
         st.subheader("Aggregate stats")
@@ -121,15 +139,21 @@ def main():
 
     with col2:
         st.subheader("Pick a graph")
-        graph_id = st.selectbox("Graph ID", filtered["graph_id"])
+        graph_id = st.selectbox("Graph ID", filtered["graph_id"], index=0 if default_graph_id is None else filtered["graph_id"].tolist().index(default_graph_id))
         row = filtered[filtered["graph_id"] == graph_id].iloc[0]
-        st.write(row)
+        st.dataframe(row.to_frame().T, width="stretch")
         path = Path(row["path"])
         if not path.exists():
             st.error(f"File not found: {path}")
         else:
             G = load_graph(path)
             draw_graph(G, f"{graph_id} ({len(G.nodes())} nodes, {len(G.edges())} edges)")
+
+            # Edge list
+            edge_rows = [{"source": u, "target": v} for u, v in G.edges()]
+            if edge_rows:
+                st.subheader("Edges")
+                st.dataframe(pd.DataFrame(edge_rows), height=200, width="stretch")
 
 
 if __name__ == "__main__":
