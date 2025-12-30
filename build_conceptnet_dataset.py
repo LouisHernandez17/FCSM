@@ -41,8 +41,8 @@ def get_wordnet_description(concept_name: str) -> str:
 
 def open_conceptnet_file(path: Path):
     if path.suffix == ".gz":
-        return gzip.open(path, "rt", encoding="utf-8")
-    return path.open("r", encoding="utf-8")
+        return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    return path.open("r", encoding="utf-8", errors="replace")
 
 
 def load_conceptnet_graph(filepath: Path, target_relations: set[str]) -> nx.DiGraph:
