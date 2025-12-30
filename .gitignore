@@ -2,3 +2,4 @@ dataset/
 conceptnet-assertions-5.7.0.csv/
 *.pt
 checkpoints/
+runs/
