@@ -28,6 +28,9 @@ class TrainConfig:
     pos_weight: float = 5.0
     num_workers: int = 2
     seed: int = 17
+    gold_oversample: int = 1
+    resume_from: Path | None = None
+    freeze_encoder: bool = False
     log_file: Path | None = None
     plot_file: Path | None = None
     log_dir: Path | None = None
@@ -36,14 +39,23 @@ class TrainConfig:
 
 
 class CausalGraphDataset(Dataset):
-    def __init__(self, root_dir: Path, split: str):
+    def __init__(self, root_dir: Path, split: str, gold_oversample: int = 1):
         self.files: List[Path] = []
         root = Path(root_dir)
 
         if split == "train":
-            self.files.extend((root / "tier2_conceptnet").glob("*.json"))
-            # augmented gold (exclude originals)
-            self.files.extend([p for p in (root / "tier3_gold").glob("*.json") if "orig" not in p.name])
+            conceptnet_files = list((root / "tier2_conceptnet").glob("*.json"))
+            gold_aug_files = [p for p in (root / "tier3_gold").glob("*.json") if "orig" not in p.name]
+
+            self.files.extend(conceptnet_files)
+            if gold_aug_files:
+                self.files.extend(gold_aug_files * max(1, gold_oversample))
+                print(
+                    f"[train] Upsampling gold: {len(gold_aug_files)} files x{max(1, gold_oversample)} | "
+                    f"ConceptNet={len(conceptnet_files)} GoldEff={len(gold_aug_files) * max(1, gold_oversample)}"
+                )
+            else:
+                print("[train] Warning: No augmented gold files found.")
         elif split == "val":
             self.files.extend([p for p in (root / "tier3_gold").glob("*.json") if "orig" in p.name])
         else:
@@ -133,6 +145,9 @@ def evaluate(model: SemanticCausalFoundationModel, loader: DataLoader, criterion
             logits, pad_mask = model(node_texts)
             pad_mask = pad_mask.to(device)
             valid_logits, valid_labels = mask_logits_and_labels(logits, labels, pad_mask)
+            if valid_logits.numel() == 0:
+                continue
+
             loss = criterion(valid_logits, valid_labels)
             total_loss += loss.item()
 
@@ -165,11 +180,19 @@ def train(cfg: TrainConfig):
     model_cfg = SCFMConfig(embedding_model=cfg.model_name, device=device)
     model = SemanticCausalFoundationModel(model_cfg)
 
-    optimizer = optim.AdamW(model.parameters(), lr=cfg.lr)
+    if cfg.resume_from:
+        state_dict = torch.load(cfg.resume_from, map_location=device)
+        model.load_state_dict(state_dict)
+
+    if cfg.freeze_encoder:
+        for p in model.set_encoder.parameters():
+            p.requires_grad = False
+
+    optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=cfg.lr)
     pos_weight = torch.tensor([cfg.pos_weight], device=device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-    train_ds = CausalGraphDataset(cfg.data_dir, split="train")
+    train_ds = CausalGraphDataset(cfg.data_dir, split="train", gold_oversample=cfg.gold_oversample)
     val_ds = CausalGraphDataset(cfg.data_dir, split="val")
 
     collate_fn = lambda batch: collate_graphs(batch, cfg.max_nodes)
@@ -191,6 +214,7 @@ def train(cfg: TrainConfig):
     step_loss = 0.0
 
     cfg.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    best_f1 = float("-inf")
 
     for epoch in range(cfg.epochs):
         model.train()
@@ -205,6 +229,9 @@ def train(cfg: TrainConfig):
             logits, pad_mask = model(node_texts)
             pad_mask = pad_mask.to(device)
             valid_logits, valid_labels = mask_logits_and_labels(logits, labels, pad_mask)
+
+            if valid_logits.numel() == 0:
+                continue
 
             loss = criterion(valid_logits, valid_labels)
 
@@ -253,6 +280,10 @@ def train(cfg: TrainConfig):
 
         ckpt_path = cfg.checkpoint_dir / f"scfm_epoch_{epoch+1}.pt"
         torch.save(model.state_dict(), ckpt_path)
+
+        if f1 > best_f1:
+            best_f1 = f1
+            torch.save(model.state_dict(), cfg.checkpoint_dir / "best_model.pt")
 
         history.append({
             "epoch": epoch + 1,
@@ -339,6 +370,9 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--pos-weight", type=float, default=5.0)
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=17)
+    parser.add_argument("--gold-oversample", type=int, default=1, help="Repeat gold augmented files this many times in training")
+    parser.add_argument("--resume-from", type=Path, help="Checkpoint path to resume from")
+    parser.add_argument("--freeze-encoder", action="store_true", help="Freeze set encoder for fine-tuning edge predictor only")
     parser.add_argument("--log-file", type=Path)
     parser.add_argument("--plot-file", type=Path)
     parser.add_argument("--log-dir", type=Path, help="TensorBoard log directory")
@@ -357,6 +391,9 @@ def parse_args() -> TrainConfig:
         pos_weight=args.pos_weight,
         num_workers=args.num_workers,
         seed=args.seed,
+        gold_oversample=args.gold_oversample,
+        resume_from=args.resume_from,
+        freeze_encoder=args.freeze_encoder,
         log_file=args.log_file,
         plot_file=args.plot_file,
         log_dir=args.log_dir,
