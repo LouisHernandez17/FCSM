@@ -4,3 +4,4 @@ conceptnet-assertions-5.7.0.csv/
 checkpoints/
 runs/
 dataset_heldout_test/
+dataset_heldout_val/

@@ -45,19 +45,24 @@ class CausalGraphDataset(Dataset):
 
         if split == "train":
             conceptnet_files = list((root / "tier2_conceptnet").glob("*.json"))
-            gold_aug_files = [p for p in (root / "tier3_gold").glob("*.json") if "orig" not in p.name]
+            gold_files = list((root / "tier3_gold").glob("*.json"))
 
             self.files.extend(conceptnet_files)
-            if gold_aug_files:
-                self.files.extend(gold_aug_files * max(1, gold_oversample))
+            if gold_files:
+                self.files.extend(gold_files * max(1, gold_oversample))
                 print(
-                    f"[train] Upsampling gold: {len(gold_aug_files)} files x{max(1, gold_oversample)} | "
-                    f"ConceptNet={len(conceptnet_files)} GoldEff={len(gold_aug_files) * max(1, gold_oversample)}"
+                    f"[train] Upsampling: {len(gold_files)} Gold x{max(1, gold_oversample)} | "
+                    f"Mix: CN={len(conceptnet_files)} GoldEff={len(gold_files) * max(1, gold_oversample)}"
                 )
             else:
-                print("[train] Warning: No augmented gold files found.")
+                print("[train] Warning: No gold training files found (check partition?)")
+
         elif split == "val":
-            self.files.extend([p for p in (root / "tier3_gold").glob("*.json") if "orig" in p.name])
+            val_dir = Path("dataset_heldout_val/tier3_gold")
+            if val_dir.exists():
+                self.files.extend([p for p in val_dir.glob("*_orig.json")])
+            if not self.files:
+                print(f"[val] Warning: No validation files found in {val_dir}")
         else:
             raise ValueError(f"Unknown split {split}")
 
@@ -188,7 +193,11 @@ def train(cfg: TrainConfig):
         for p in model.set_encoder.parameters():
             p.requires_grad = False
 
-    optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=cfg.lr)
+    optimizer = optim.AdamW(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=cfg.lr,
+        weight_decay=0.1,
+    )
     pos_weight = torch.tensor([cfg.pos_weight], device=device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
