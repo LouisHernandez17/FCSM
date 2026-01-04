@@ -14,7 +14,7 @@ class SCFMConfig:
     hidden_dim: int = 256
     transformer_layers: int = 4
     transformer_heads: int = 4
-    dropout: float = 0.2
+    dropout: float = 0.4
     device: str | torch.device = "auto"  # "auto" -> cuda (ROCm OK) or mps, else cpu
 
 
@@ -29,7 +29,7 @@ class SemanticFeaturizer(nn.Module):
             p.requires_grad = False
         hidden_size = self.encoder.config.hidden_size
         self.proj = nn.Linear(hidden_size, cfg.hidden_dim)
-        self.embed_dropout = nn.Dropout(0.2)
+        self.embed_dropout = nn.Dropout(0.4)
 
     @torch.no_grad()
     def encode(self, texts: List[str], device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:

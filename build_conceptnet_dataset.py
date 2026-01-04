@@ -22,6 +22,20 @@ TARGET_RELATIONS = {
                      }
 DEFAULT_INPUT = Path("conceptnet-assertions-5.7.0.csv/assertions.csv")
 DEFAULT_OUTPUT_DIR = Path("dataset/tier2_conceptnet")
+DICT_PATH = Path("dataset/node_dictionary.json")
+
+
+def load_concept_dictionary() -> dict[str, str]:
+    if not DICT_PATH.exists():
+        return {}
+    try:
+        return json.loads(DICT_PATH.read_text())
+    except json.JSONDecodeError:
+        print(f"Warning: could not parse {DICT_PATH}; ignoring dictionary.")
+        return {}
+
+
+CONCEPT_LIB = load_concept_dictionary()
 
 
 def ensure_wordnet() -> None:
@@ -37,6 +51,14 @@ def get_wordnet_description(concept_name: str) -> str:
     if synsets:
         return synsets[0].definition()
     return f"The concept of {clean_name}"
+
+
+def describe_concept(clean_name: str) -> str:
+    if CONCEPT_LIB:
+        desc = CONCEPT_LIB.get(clean_name)
+        if desc:
+            return desc
+    return get_wordnet_description(clean_name)
 
 
 def open_conceptnet_file(path: Path):
@@ -128,6 +150,7 @@ def extract_subgraphs(
             nodes_data.append({
                 "id": node,
                 "name": clean_name,
+                "description": describe_concept(clean_name),
             })
 
         edges_data = [{"source": u, "target": v} for u, v in subgraph.edges]

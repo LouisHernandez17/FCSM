@@ -13,19 +13,22 @@ EVAL = ROOT / "evaluate_test.py"
 # Recommended hyperparameters
 PHASE1_CFG = {
     "data_dir": "dataset",
-    "batch_size": 32,
-    "epochs": 10,
+    "batch_size": 12,
+    "epochs": 20,
     "lr": "2e-4",
     "pos_weight": "10.0",
-    "gold_oversample": 5,
+    "gold_oversample": 2,
     "checkpoint_dir": "checkpoints/phase1_recall",
     "log_dir": "runs/phase1_recall",
     "log_interval": 50,
+    "num_workers": 0,
+    "max_nodes": 128,
+    "freeze_encoder": True,
 }
 
 PHASE2_CFG = {
     "data_dir": "dataset",
-    "batch_size": 16,
+    "batch_size": 12,
     "epochs": 10,
     "lr": "5e-5",
     "pos_weight": "3.0",
@@ -34,6 +37,9 @@ PHASE2_CFG = {
     "checkpoint_dir": "checkpoints/phase2_precision",
     "log_dir": "runs/phase2_precision",
     "log_interval": 50,
+    "num_workers": 0,
+    "max_nodes": 128,
+    "freeze_encoder": True,
 }
 
 HELDOUT_DIR = "dataset_heldout_test"
@@ -77,10 +83,15 @@ def phase1():
         PHASE1_CFG["log_dir"],
         "--log-interval",
         str(PHASE1_CFG["log_interval"]),
+        "--num-workers",
+        str(PHASE1_CFG["num_workers"]),
+        "--max-nodes",
+        str(PHASE1_CFG["max_nodes"]),
         "--device",
         "auto",
+        "--freeze-encoder" if PHASE1_CFG["freeze_encoder"] else None,
     ]
-    run(["uv", "run"] + args)
+    run(["uv", "run"] + [a for a in args if a is not None])
 
 
 def phase2():
@@ -111,10 +122,15 @@ def phase2():
         PHASE2_CFG["log_dir"],
         "--log-interval",
         str(PHASE2_CFG["log_interval"]),
+        "--num-workers",
+        str(PHASE2_CFG["num_workers"]),
+        "--max-nodes",
+        str(PHASE2_CFG["max_nodes"]),
         "--device",
         "auto",
+        "--freeze-encoder" if PHASE2_CFG["freeze_encoder"] else None,
     ]
-    run(["uv", "run"] + args)
+    run(["uv", "run"] + [a for a in args if a is not None])
 
 
 def evaluate():

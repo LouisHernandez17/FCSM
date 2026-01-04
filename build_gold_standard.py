@@ -18,6 +18,21 @@ from assets.augmenter import GraphAugmenter
 DEFAULT_OUTPUT_DIR = Path("dataset/tier3_gold")
 DEFAULT_NETWORKS = ("asia",)
 
+DICT_PATH = Path("dataset/node_dictionary.json")
+
+
+def load_concept_dictionary() -> dict[str, str]:
+    if not DICT_PATH.exists():
+        return {}
+    try:
+        return json.loads(DICT_PATH.read_text())
+    except json.JSONDecodeError:
+        print(f"Warning: could not parse {DICT_PATH}; ignoring dictionary.")
+        return {}
+
+
+CONCEPT_LIB = load_concept_dictionary()
+
 BNLEARN_BASE = "https://www.bnlearn.com/bnrepository"
 
 BNLEARN_NETWORKS = {
@@ -73,6 +88,54 @@ BNLEARN_PRESETS = {
     "all": sorted(BNLEARN_NETWORKS.keys()),
 }
 
+MANUAL_DESCRIPTIONS = {
+    # Survey network (abbreviated nodes)
+    "A": "Age of the individual",
+    "S": "Sex or gender",
+    "E": "Education level",
+    "O": "Occupation category",
+    "R": "Residence size (urban vs rural)",
+    "T": "Primary transport or travel frequency",
+    # Insurance network (abbreviated nodes)
+    "GoodStudent": "Whether the driver qualifies as a good student",
+    "Age": "Age of the policy holder",
+    "SocioEcon": "Socio-economic status of the policy holder",
+    "RiskAversion": "Driver's aversion to risk while driving",
+    "VehicleYear": "Manufacture year of the insured vehicle",
+    "ThisCarDam": "Past damage history of this car",
+    "RuggedAuto": "How rugged or durable the vehicle is",
+    "Accident": "Whether the driver has been in an accident",
+    "MakeModel": "Make and model of the vehicle",
+    "DrivQuality": "Overall driving quality of the driver",
+    "Mileage": "Typical mileage driven",
+    "Antilock": "Whether the vehicle has anti-lock brakes",
+    "DrivingSkill": "Driver's skill level",
+    "SeniorTrain": "Whether driver took senior training",
+    "ThisCarCost": "Replacement or repair cost for this car",
+    "Theft": "Likelihood of theft for this vehicle",
+    "CarValue": "Current value of the car",
+    "HomeBase": "Typical parking location of the car",
+    "AntiTheft": "Presence of anti-theft devices",
+    "PropCost": "Property damage cost in accidents",
+    "OtherCarCost": "Cost of damage to other cars",
+    "OtherCar": "Involvement of another car",
+    "MedCost": "Medical cost resulting from accidents",
+    "Cushioning": "Quality of car cushioning for safety",
+    "Airbag": "Presence and quality of airbags",
+    "ILiCost": "Injury liability cost",
+    "DrivHist": "Past driving history of the driver",
+}
+
+
+def describe_node(node: str) -> str:
+    if node in MANUAL_DESCRIPTIONS:
+        return MANUAL_DESCRIPTIONS[node]
+    if CONCEPT_LIB:
+        desc = CONCEPT_LIB.get(node)
+        if desc:
+            return desc
+    return f"The variable {node}"
+
 
 def graph_to_payload(name: str, graph: nx.DiGraph, suffix: str | None = None) -> dict:
     graph_id = f"gold_{name}"
@@ -84,6 +147,7 @@ def graph_to_payload(name: str, graph: nx.DiGraph, suffix: str | None = None) ->
         nodes_data.append({
             "id": node,
             "name": node,
+            "description": describe_node(node),
         })
 
     edges_data = [{"source": u, "target": v} for u, v in graph.edges()]

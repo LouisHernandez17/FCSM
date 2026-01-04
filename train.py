@@ -60,7 +60,7 @@ class CausalGraphDataset(Dataset):
         elif split == "val":
             val_dir = Path("dataset_heldout_val/tier3_gold")
             if val_dir.exists():
-                self.files.extend([p for p in val_dir.glob("*_orig.json")])
+                self.files.extend([p for p in val_dir.glob("*.json")])
             if not self.files:
                 print(f"[val] Warning: No validation files found in {val_dir}")
         else:
