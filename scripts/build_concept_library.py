@@ -1,4 +1,7 @@
+import argparse
 import json
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from openai import OpenAI
@@ -8,10 +11,10 @@ DATASET_DIR = Path("dataset/tier2_conceptnet")
 OUTPUT_FILE = Path("dataset/node_dictionary.json")
 
 LM_CLIENT = OpenAI(
-    base_url="http://127.0.0.1:1234/v1",
-    api_key="lm-studio",
+    base_url="http://13.218.97.64:8000/v1",
+    api_key="dummy",
 )
-MODEL_ID = "nvidia/nemotron-3-nano"
+MODEL_ID = "Qwen/Qwen3-VL-8B-Thinking-FP8"
 
 
 def get_all_unique_nodes() -> list[str]:
@@ -22,7 +25,8 @@ def get_all_unique_nodes() -> list[str]:
         print("No JSON graphs found in dataset/tier2_conceptnet. Run build_full_dataset.py first.")
         return []
 
-    print(f"Scanning {len(files)} graphs in {DATASET_DIR} for concept names...")
+    print(
+        f"Scanning {len(files)} graphs in {DATASET_DIR} for concept names...")
     for path in tqdm(files):
         try:
             data = json.loads(path.read_text())
@@ -59,8 +63,7 @@ def generate_definition(term: str) -> str | None:
                     ),
                 },
             ],
-            temperature=0.7,
-            max_tokens=50,
+            temperature=0.7
         )
         return response.choices[0].message.content.strip()
     except Exception as exc:  # noqa: BLE001
@@ -68,7 +71,33 @@ def generate_definition(term: str) -> str | None:
         return None
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate concise definitions via LM Studio.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=int(os.environ.get("LM_WORKERS", "4")),
+        help="Number of parallel LM requests (default: 4).",
+    )
+    parser.add_argument(
+        "--save-every",
+        type=int,
+        default=50,
+        help="Write progress every N completed definitions (0 disables).",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Optional cap on number of concepts to define (0 = all).",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     nodes = get_all_unique_nodes()
     if not nodes:
         return
@@ -77,28 +106,40 @@ def main() -> None:
     if OUTPUT_FILE.exists():
         try:
             existing = json.loads(OUTPUT_FILE.read_text())
-            print(f"Loaded {len(existing)} existing definitions from {OUTPUT_FILE}.")
+            print(
+                f"Loaded {len(existing)} existing definitions from {OUTPUT_FILE}.")
         except Exception as exc:  # noqa: BLE001
-            print(f"Could not read existing dictionary, starting fresh ({exc}).")
+            print(
+                f"Could not read existing dictionary, starting fresh ({exc}).")
             existing = {}
     else:
         existing = {}
 
     todo = [name for name in nodes if name not in existing]
+    if args.limit and args.limit > 0:
+        todo = todo[: args.limit]
     print(f"Definitions remaining: {len(todo)}")
     if not todo:
         print("Dictionary already complete.")
         return
 
-    print("Generating definitions via LMStudio...")
+    workers = max(1, args.workers)
+    print(f"Generating definitions via LMStudio with {workers} worker(s)...")
     try:
-        for idx, term in enumerate(tqdm(todo)):
-            definition = generate_definition(term)
-            if definition:
-                existing[term] = definition
+        save_every = args.save_every
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_term = {executor.submit(
+                generate_definition, term): term for term in todo}
+            for idx, future in enumerate(
+                tqdm(as_completed(future_to_term), total=len(todo))
+            ):
+                term = future_to_term[future]
+                definition = future.result()
+                if definition:
+                    existing[term] = definition
 
-            if idx % 50 == 0:
-                OUTPUT_FILE.write_text(json.dumps(existing, indent=2))
+                if save_every > 0 and (idx + 1) % save_every == 0:
+                    OUTPUT_FILE.write_text(json.dumps(existing, indent=2))
     except KeyboardInterrupt:
         print("Interrupted, saving progress...")
 

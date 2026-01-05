@@ -1,6 +1,6 @@
 ## Overview
 
-Local, no-LLM causal graph dataset builder. Tier 2 mines ConceptNet for structure (no descriptions). Tier 3 exports benchmark DAGs from the bnlearn repository (static URL map).
+Local, no-LLM causal graph dataset builder. Tier 2 mines ConceptNet for structure and enriches nodes with WordNet descriptions. Tier 3 exports benchmark DAGs from the bnlearn repository (static URL map).
 
 ## Prerequisites
 
@@ -16,9 +16,9 @@ uv sync
 
 ## Usage
 
-### Tier 2: ConceptNet (structure only)
+### Tier 2: ConceptNet (structure + descriptions)
 
-Generates sampled DAGs; nodes include `id` and `name` only (no descriptions).
+Generates sampled DAGs; nodes include `id`, `name`, and a WordNet `description` when available.
 
 ```bash
 uv run python build_conceptnet_dataset.py \
@@ -85,6 +85,22 @@ Output:
 - Tier2 JSON files in `dataset/tier2_conceptnet/`
 - Tier3 JSON files (orig/marg/sub) in `dataset/tier3_gold/`
 - Combined manifest: `dataset/full_dataset.jsonl` (and `.jsonl.gz` when `--manifest-gzip` is set), one graph per line with `graph_id`, `nodes`, `edges`, `domain`, `source`, and `path`.
+
+## Training curriculum
+
+Held-out splits are by network family (not random files) to prevent leakage. Create them once (also done automatically by `run_curriculum.py`):
+
+```bash
+uv run python scripts/partition_dataset.py
+```
+
+Two-phase training (recall then precision), leaving the Set Transformer unfrozen because it starts from random weights:
+
+```bash
+uv run python run_curriculum.py
+```
+
+If you call `train.py` directly, avoid `--freeze-encoder` unless you intentionally want a frozen, randomly initialized set encoder.
 
 ## Validation
 

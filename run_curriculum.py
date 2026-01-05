@@ -23,7 +23,8 @@ PHASE1_CFG = {
     "log_interval": 50,
     "num_workers": 0,
     "max_nodes": 128,
-    "freeze_encoder": True,
+    # Keep the set encoder trainable; it is randomly initialized.
+    "freeze_encoder": False,
 }
 
 PHASE2_CFG = {
@@ -39,7 +40,7 @@ PHASE2_CFG = {
     "log_interval": 50,
     "num_workers": 0,
     "max_nodes": 128,
-    "freeze_encoder": True,
+    "freeze_encoder": False,
 }
 
 HELDOUT_DIR = "dataset_heldout_test"
