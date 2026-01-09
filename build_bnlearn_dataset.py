@@ -15,7 +15,7 @@ from pgmpy.utils import get_example_model
 
 from assets.augmenter import GraphAugmenter
 
-DEFAULT_OUTPUT_DIR = Path("dataset/tier3_gold")
+DEFAULT_OUTPUT_DIR = Path("dataset/bnlearn")
 DEFAULT_NETWORKS = ("asia",)
 
 DICT_PATH = Path("dataset/node_dictionary.json")
@@ -138,7 +138,7 @@ def describe_node(node: str) -> str:
 
 
 def graph_to_payload(name: str, graph: nx.DiGraph, suffix: str | None = None) -> dict:
-    graph_id = f"gold_{name}"
+    graph_id = f"bnlearn_{name}"
     if suffix:
         graph_id = f"{graph_id}_{suffix}"
 
@@ -211,7 +211,7 @@ def write_graph(output_dir: Path, payload: dict) -> Path:
 
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build gold-standard causal graphs from bnlearn / pgmpy examples.")
+    parser = argparse.ArgumentParser(description="Build BNLearn causal graphs from bnlearn / pgmpy examples.")
     parser.add_argument("--networks", nargs="+", default=list(DEFAULT_NETWORKS), help="Names of networks to export (e.g., asia). Ignored if --bnlearn-all is set.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Directory to write JSON graphs")
     parser.add_argument("--bif", type=Path, help="Optional BIF file for a custom network")

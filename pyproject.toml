@@ -21,6 +21,7 @@ dependencies = [
     "sentencepiece>=0.2.0",
     "tensorboard>=2.16.0",
     "optuna>=4.6.0",
+    "ipykernel>=7.1.0",
 ]
 
 # You can keep or remove the [tool.uv] sections; they won't trigger if torch isn't in dependencies.

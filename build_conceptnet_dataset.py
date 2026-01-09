@@ -21,7 +21,7 @@ TARGET_RELATIONS = {
                     # "/r/Entails",
                      }
 DEFAULT_INPUT = Path("conceptnet-assertions-5.7.0.csv/assertions.csv")
-DEFAULT_OUTPUT_DIR = Path("dataset/tier2_conceptnet")
+DEFAULT_OUTPUT_DIR = Path("dataset/conceptnet")
 DICT_PATH = Path("dataset/node_dictionary.json")
 
 

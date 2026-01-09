@@ -28,7 +28,7 @@ class TrainConfig:
     pos_weight: float = 5.0
     num_workers: int = 2
     seed: int = 17
-    gold_oversample: int = 1
+    bnlearn_oversample: int = 1
     resume_from: Path | None = None
     freeze_encoder: bool = False
     log_file: Path | None = None
@@ -39,30 +39,44 @@ class TrainConfig:
 
 
 class CausalGraphDataset(Dataset):
-    def __init__(self, root_dir: Path, split: str, gold_oversample: int = 1):
+    def __init__(self, root_dir: Path, split: str, bnlearn_oversample: int = 1):
         self.files: List[Path] = []
         root = Path(root_dir)
 
         if split == "train":
-            conceptnet_files = list((root / "tier2_conceptnet").glob("*.json"))
-            gold_files = list((root / "tier3_gold").glob("*.json"))
+            conceptnet_files = list((root / "conceptnet").glob("*.json"))
+            causenet_files = list((root / "causenet").glob("*.json"))
+            bnlearn_files = list((root / "bnlearn").glob("*.json"))
 
             self.files.extend(conceptnet_files)
-            if gold_files:
-                self.files.extend(gold_files * max(1, gold_oversample))
+            self.files.extend(causenet_files)
+            if bnlearn_files:
+                self.files.extend(bnlearn_files * max(1, bnlearn_oversample))
                 print(
-                    f"[train] Upsampling: {len(gold_files)} Gold x{max(1, gold_oversample)} | "
-                    f"Mix: CN={len(conceptnet_files)} GoldEff={len(gold_files) * max(1, gold_oversample)}"
+                    f"[train] Upsampling: {len(bnlearn_files)} BNLearn x{max(1, bnlearn_oversample)} | "
+                    f"Mix: ConceptNet={len(conceptnet_files)} "
+                    f"CauseNet={len(causenet_files)} "
+                    f"BNLearnEff={len(bnlearn_files) * max(1, bnlearn_oversample)}"
                 )
             else:
-                print("[train] Warning: No gold training files found (check partition?)")
+                print("[train] Warning: No BNLearn training files found (check partition?)")
 
         elif split == "val":
-            val_dir = Path("dataset_heldout_val/tier3_gold")
-            if val_dir.exists():
-                self.files.extend([p for p in val_dir.glob("*.json")])
+            val_root = Path("dataset_heldout_val")
+            bnlearn_val = list((val_root / "bnlearn").glob("*.json"))
+            causenet_val = list((val_root / "causenet").glob("*.json"))
+            cn_val = list((val_root / "conceptnet").glob("*.json"))
+            self.files.extend(bnlearn_val)
+            self.files.extend(causenet_val)
+            self.files.extend(cn_val)
             if not self.files:
-                print(f"[val] Warning: No validation files found in {val_dir}")
+                print(f"[val] Warning: No validation files found in {val_root}")
+            else:
+                print(
+                    f"[val] Found {len(bnlearn_val)} BNLearn, "
+                    f"{len(causenet_val)} CauseNet, "
+                    f"and {len(cn_val)} ConceptNet graphs."
+                )
         else:
             raise ValueError(f"Unknown split {split}")
 
@@ -84,12 +98,11 @@ class CausalGraphDataset(Dataset):
         for i, n in enumerate(nodes):
             nid = n["id"] if isinstance(n, dict) else n
             id_to_idx[nid] = i
-            desc = ""
             if isinstance(n, dict):
-                desc = n.get("description") or n.get("name") or str(nid)
+                text = n.get("name") or str(nid)
             else:
-                desc = str(n)
-            node_texts.append(desc)
+                text = str(n)
+            node_texts.append(text)
 
         num_nodes = len(node_texts)
         adj = torch.zeros((num_nodes, num_nodes), dtype=torch.float)
@@ -187,7 +200,11 @@ def train(cfg: TrainConfig):
 
     if cfg.resume_from:
         state_dict = torch.load(cfg.resume_from, map_location=device)
-        model.load_state_dict(state_dict)
+        missing, unexpected = model.load_state_dict(state_dict, strict=False)
+        if missing:
+            print(f"[resume] Missing keys: {len(missing)}")
+        if unexpected:
+            print(f"[resume] Unexpected keys: {len(unexpected)}")
 
     if cfg.freeze_encoder:
         for p in model.set_encoder.parameters():
@@ -201,7 +218,7 @@ def train(cfg: TrainConfig):
     pos_weight = torch.tensor([cfg.pos_weight], device=device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-    train_ds = CausalGraphDataset(cfg.data_dir, split="train", gold_oversample=cfg.gold_oversample)
+    train_ds = CausalGraphDataset(cfg.data_dir, split="train", bnlearn_oversample=cfg.bnlearn_oversample)
     val_ds = CausalGraphDataset(cfg.data_dir, split="val")
 
     collate_fn = lambda batch: collate_graphs(batch, cfg.max_nodes)
@@ -287,12 +304,16 @@ def train(cfg: TrainConfig):
             f"val_loss={val_loss:.4f} val_P={p:.3f} val_R={r:.3f} val_F1={f1:.3f}"
         )
 
+        ckpt_state = {
+            k: v for k, v in model.state_dict().items()
+            if not k.startswith("featurizer.encoder.")
+        }
         ckpt_path = cfg.checkpoint_dir / f"scfm_epoch_{epoch+1}.pt"
-        torch.save(model.state_dict(), ckpt_path)
+        torch.save(ckpt_state, ckpt_path)
 
         if f1 > best_f1:
             best_f1 = f1
-            torch.save(model.state_dict(), cfg.checkpoint_dir / "best_model.pt")
+            torch.save(ckpt_state, cfg.checkpoint_dir / "best_model.pt")
 
         history.append({
             "epoch": epoch + 1,
@@ -379,7 +400,7 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--pos-weight", type=float, default=5.0)
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=17)
-    parser.add_argument("--gold-oversample", type=int, default=1, help="Repeat gold augmented files this many times in training")
+    parser.add_argument("--bnlearn-oversample", type=int, default=1, help="Repeat BNLearn augmented files this many times in training")
     parser.add_argument("--resume-from", type=Path, help="Checkpoint path to resume from")
     parser.add_argument("--freeze-encoder", action="store_true", help="Freeze set encoder for fine-tuning edge predictor only")
     parser.add_argument("--log-file", type=Path)
@@ -400,7 +421,7 @@ def parse_args() -> TrainConfig:
         pos_weight=args.pos_weight,
         num_workers=args.num_workers,
         seed=args.seed,
-        gold_oversample=args.gold_oversample,
+        bnlearn_oversample=args.bnlearn_oversample,
         resume_from=args.resume_from,
         freeze_encoder=args.freeze_encoder,
         log_file=args.log_file,

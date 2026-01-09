@@ -122,7 +122,7 @@ class SemanticCausalFoundationModel(nn.Module):
         """Compute edge logits for a batch of graphs.
 
         Args:
-            graphs: list of graphs, each graph is a list of node descriptions (strings)
+            graphs: list of graphs, each graph is a list of node names (strings)
         Returns:
             logits: (B, N, N) adjacency logits with -inf on pads/diagonal
             pad_mask: (B, N) boolean padding mask

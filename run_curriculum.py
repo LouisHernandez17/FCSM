@@ -17,10 +17,10 @@ PHASE1_CFG = {
     "epochs": 20,
     "lr": "2e-4",
     "pos_weight": "10.0",
-    "gold_oversample": 2,
+    "bnlearn_oversample": 2,
     "checkpoint_dir": "checkpoints/phase1_recall",
     "log_dir": "runs/phase1_recall",
-    "log_interval": 50,
+    "log_interval": 20,
     "num_workers": 0,
     "max_nodes": 128,
     # Keep the set encoder trainable; it is randomly initialized.
@@ -33,11 +33,11 @@ PHASE2_CFG = {
     "epochs": 10,
     "lr": "5e-5",
     "pos_weight": "3.0",
-    "gold_oversample": 100,
+    "bnlearn_oversample": 100,
     "resume_from": "checkpoints/phase1_recall/scfm_epoch_10.pt",
     "checkpoint_dir": "checkpoints/phase2_precision",
     "log_dir": "runs/phase2_precision",
-    "log_interval": 50,
+    "log_interval": 20,
     "num_workers": 0,
     "max_nodes": 128,
     "freeze_encoder": False,
@@ -55,7 +55,7 @@ def run(cmd: list[str]):
 
 
 def maybe_partition():
-    dest = Path(HELDOUT_DIR) / "tier3_gold"
+    dest = Path(HELDOUT_DIR) / "bnlearn"
     if dest.exists() and any(dest.glob("*.json")):
         print(f"Held-out set already exists at {dest}; skipping partition.")
         return
@@ -76,8 +76,8 @@ def phase1():
         str(PHASE1_CFG["lr"]),
         "--pos-weight",
         str(PHASE1_CFG["pos_weight"]),
-        "--gold-oversample",
-        str(PHASE1_CFG["gold_oversample"]),
+        "--bnlearn-oversample",
+        str(PHASE1_CFG["bnlearn_oversample"]),
         "--checkpoint-dir",
         PHASE1_CFG["checkpoint_dir"],
         "--log-dir",
@@ -113,8 +113,8 @@ def phase2():
         str(PHASE2_CFG["lr"]),
         "--pos-weight",
         str(PHASE2_CFG["pos_weight"]),
-        "--gold-oversample",
-        str(PHASE2_CFG["gold_oversample"]),
+        "--bnlearn-oversample",
+        str(PHASE2_CFG["bnlearn_oversample"]),
         "--resume-from",
         str(resume_path),
         "--checkpoint-dir",

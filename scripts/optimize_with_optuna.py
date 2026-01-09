@@ -23,7 +23,7 @@ FIXED_ARGS = [
     "12",
     "--epochs",
     "6",  # shorter runs for faster search
-    "--gold-oversample",
+    "--bnlearn-oversample",
     "2",
     "--log-interval",
     "50",
@@ -33,7 +33,6 @@ FIXED_ARGS = [
     "128",
     "--device",
     "auto",
-    "--freeze-encoder",
 ]
 
 
@@ -47,7 +46,7 @@ def parse_best_f1(log_output: str) -> float:
 
 def objective(trial: optuna.Trial) -> float:
     lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
-    pos_weight = trial.suggest_float("pos_weight", 2.0, 15.0, step=0.5)
+    pos_weight = trial.suggest_float("pos_weight", 1.0, 15.0, step=0.5)
 
     run_name = f"optuna_trial_{trial.number}"
     checkpoint_dir = ROOT / "checkpoints" / "optuna_phase1" / run_name

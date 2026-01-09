@@ -7,7 +7,7 @@ from pathlib import Path
 from openai import OpenAI
 from tqdm import tqdm
 
-DATASET_DIR = Path("dataset/tier2_conceptnet")
+DATASET_DIR = Path("dataset/conceptnet")
 OUTPUT_FILE = Path("dataset/node_dictionary.json")
 
 LM_CLIENT = OpenAI(
@@ -22,7 +22,7 @@ def get_all_unique_nodes() -> list[str]:
     unique_nodes: set[str] = set()
     files = sorted(DATASET_DIR.glob("*.json"))
     if not files:
-        print("No JSON graphs found in dataset/tier2_conceptnet. Run build_full_dataset.py first.")
+        print(f"No JSON graphs found in {DATASET_DIR}. Run build_full_dataset.py first.")
         return []
 
     print(

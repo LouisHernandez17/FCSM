@@ -18,9 +18,9 @@ class TestDataset(Dataset):
 
     def __init__(self, root: Path):
         root = Path(root)
-        tier3 = root / "tier3_gold"
-        self.files = sorted(tier3.glob("*_orig.json"))
-        print(f"Found {len(self.files)} held-out original graphs in {tier3}.")
+        bnlearn_dir = root / "bnlearn"
+        self.files = sorted(bnlearn_dir.glob("*_orig.json"))
+        print(f"Found {len(self.files)} held-out original graphs in {bnlearn_dir}.")
 
     def __len__(self) -> int:
         return len(self.files)
@@ -38,10 +38,10 @@ class TestDataset(Dataset):
             nid = n["id"] if isinstance(n, dict) else n
             id_to_idx[nid] = i
             if isinstance(n, dict):
-                desc = n.get("description") or n.get("name") or str(nid)
+                text = n.get("name") or str(nid)
             else:
-                desc = str(n)
-            node_texts.append(desc)
+                text = str(n)
+            node_texts.append(text)
 
         num_nodes = len(node_texts)
         adj = torch.zeros((num_nodes, num_nodes), dtype=torch.float)

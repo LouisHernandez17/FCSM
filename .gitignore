@@ -5,3 +5,9 @@ checkpoints/
 runs/
 dataset_heldout_test/
 dataset_heldout_val/
+*.db
+dataset_*/
+*.cx
+*.jsonl
+__pycache__/
+*.pyc
